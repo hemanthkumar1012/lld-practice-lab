@@ -8,7 +8,6 @@ const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 function getHeaders() {
   return {
     apikey: SUPABASE_KEY!,
-    Authorization: `Bearer ${SUPABASE_KEY!}`,
     'Content-Type': 'application/json',
     Prefer: 'return=representation',
   }
