@@ -1,20 +1,40 @@
 # Research Note — LLD Practice Lab
 
-## Learner problem
-Most LLD practice is passive: a learner reads a prompt, writes code, and gets little evidence about whether the design decisions were good. The useful learning loop is **problem → design → submission → review → retry**.
+## What I was trying to solve
 
-## Observed patterns
-- Interview-style LLD tasks are evaluated on more than compilation: requirements, responsibility boundaries, coupling, abstraction, extensibility, testability, and reasoning matter.
-- Feedback is more useful when it cites evidence from the submission instead of giving a generic score.
-- A score without a next action does not create a strong retry loop.
-- AI is useful for qualitative design judgment, but deterministic checks are better for objective signals and resilience.
-- Evaluation may be slow or unavailable, so the product needs explicit evaluation states and a safe fallback.
+I wanted the platform to feel like an actual LLD practice session rather than just another code editor. The main problem I focused on was the gap between submitting a design and knowing what to improve next.
 
-## Product implication
-The MVP should stay narrow: three curated Java LLD problems, a code editor, written design reasoning, one submission, structured feedback, and attempt history. A diagram editor, social features, leaderboards, and distributed services are intentionally out of scope.
+My target loop is:
 
-## Evaluation approach
-The platform separates deterministic preflight checks from AI review. Deterministic checks provide predictable baseline feedback. Gemini reviews design quality and returns a strict seven-criterion structure: criterion, score, evidence, concern, suggestion, and confidence.
+**Pick a problem → think/design → submit → get useful feedback → review → try again**
 
-## Success signal
-A successful learner session ends with a concrete improvement target and an easy path to retry the same problem. The primary metric is therefore completed reviewed attempts and repeat attempts, not page views.
+## What I found useful for the MVP
+
+- LLD interviews are not only about whether the code works. Responsibility, coupling, abstraction, extensibility, testability, and the reasoning behind the design matter too.
+- A score by itself is not very useful. The feedback should point to something in the submitted code or explanation.
+- The learner should get a clear next step instead of a long generic review.
+- AI is useful for the parts that are difficult to judge with simple rules, especially design trade-offs and responsibility boundaries.
+- The external evaluator can be slow or unavailable, so the application should not completely break when that happens.
+
+## What I decided to build
+
+For the two-day assignment I kept the scope small:
+
+- 3 LLD problems: Parking Lot, Vending Machine, Elevator System
+- Java code editor
+- Written design explanation
+- Submission and evaluation
+- Seven review criteria
+- Attempt history and retry
+- Supabase persistence
+- Gemini-assisted qualitative feedback
+
+I deliberately did not build a diagram editor, leaderboard, social features, or microservices. Those would add work without improving the main learning loop for this MVP.
+
+## Feedback approach
+
+I split evaluation into two parts. Deterministic checks give a predictable baseline, while Gemini handles qualitative design review. The final feedback is structured as a score, evidence, concern, suggestion, and confidence for each criterion.
+
+## What success means
+
+For me, the important outcome is not how many pages a learner visits. It is whether someone can finish a problem, understand what was weak in the design, and immediately make another attempt with that feedback in mind.
