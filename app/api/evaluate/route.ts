@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const GEMINI_MODEL = 'gemini-2.5-flash'
+const GEMINI_MODEL = 'gemini-3.8-flash'
 
 const CRITERIA = [
   'Requirement Understanding',
@@ -14,21 +14,21 @@ const CRITERIA = [
 ] as const
 
 const OUTPUT_SCHEMA = {
-  type: 'object',
+  type: 'OBJECT',
   properties: {
-    overallScore: { type: 'integer' },
-    summary: { type: 'string' },
+    overallScore: { type: 'INTEGER' },
+    summary: { type: 'STRING' },
     criteria: {
-      type: 'array',
+      type: 'ARRAY',
       items: {
-        type: 'object',
+        type: 'OBJECT',
         properties: {
-          key: { type: 'string', enum: [...CRITERIA] },
-          score: { type: 'integer' },
-          evidence: { type: 'string' },
-          concern: { type: 'string' },
-          suggestion: { type: 'string' },
-          confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
+          key: { type: 'STRING' },
+          score: { type: 'INTEGER' },
+          evidence: { type: 'STRING' },
+          concern: { type: 'STRING' },
+          suggestion: { type: 'STRING' },
+          confidence: { type: 'STRING' },
         },
         required: ['key', 'score', 'evidence', 'concern', 'suggestion', 'confidence'],
       },
@@ -71,7 +71,9 @@ Score these seven criteria from 0 to 100:
 
 For every criterion provide concrete evidence from the submitted code or explanation, one meaningful concern, one actionable suggestion, and confidence (High, Medium, or Low).
 
-The overall score should reflect the quality of the seven criteria. Do not assume requirements that were not provided. Distinguish missing evidence from a genuinely poor design. Keep feedback concise enough for a learner to act on.`
+The overall score should reflect the quality of the seven criteria. Do not assume requirements that were not provided. Distinguish missing evidence from a genuinely poor design. Keep feedback concise enough for a learner to act on.
+
+Return exactly seven criteria, one for each named criterion, with no duplicates.`
 
     const userPrompt = `PROBLEM
 Title: ${problem.title}
@@ -89,10 +91,13 @@ DESIGN REASONING
 ${explanation}`
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': GEMINI_API_KEY,
+        },
         body: JSON.stringify({
           systemInstruction: {
             parts: [{ text: systemPrompt }],
@@ -104,7 +109,6 @@ ${explanation}`
             },
           ],
           generationConfig: {
-            temperature: 0.2,
             responseMimeType: 'application/json',
             responseSchema: OUTPUT_SCHEMA,
           },
