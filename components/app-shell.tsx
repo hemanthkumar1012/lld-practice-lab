@@ -36,10 +36,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <SidebarNav />
         </div>
         <div className="rounded-lg border border-sidebar-border bg-background/40 p-3">
-          <p className="text-xs font-medium">MVP preview</p>
+          <p className="text-xs font-medium">How review works</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Feedback shown is illustrative. Supabase persistence and AI
-            evaluation connect next.
+            Submit your Java design and explanation. The reviewer checks the
+            same seven design criteria on every attempt and gives evidence,
+            concerns, and concrete next steps.
           </p>
         </div>
       </aside>
