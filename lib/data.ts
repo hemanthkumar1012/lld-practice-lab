@@ -1,14 +1,11 @@
 import type { Attempt, Difficulty, Problem } from '@/lib/types'
 
 /**
- * Static content layer for the MVP.
+ * Curated problem content for the practice library.
  *
- * Problems are real, curated content. Attempts are NOT seeded — they only
- * exist once a learner submits a solution and a real evaluation runs. Every
- * read goes through a small function (getProblems, getAttempt, etc.) so the UI
- * never touches the raw arrays directly. When Supabase + AI evaluation land,
- * only the bodies of these functions change — the call sites and return types
- * stay the same.
+ * Problems stay local because they are small, versioned product content.
+ * Learner attempts are persisted in Supabase through the API routes rather
+ * than being seeded here, so the history always represents real submissions.
  */
 
 /**
@@ -110,14 +107,10 @@ const PROBLEMS: Problem[] = [
   },
 ]
 
-/**
- * No attempts exist until a learner submits a real solution. This stays empty
- * on purpose — invented scores would misrepresent the learner's history. When
- * persistence lands, this becomes a query against the attempts table.
- */
+// Kept empty intentionally. Attempts are loaded from Supabase by the API.
 const ATTEMPTS: Attempt[] = []
 
-// --- Read API (swap these bodies for Supabase/AI later) ---------------------
+// --- Read API for curated problem content -------------------------------
 
 export function getProblems(): Problem[] {
   return PROBLEMS
@@ -127,6 +120,10 @@ export function getProblem(id: string): Problem | undefined {
   return PROBLEMS.find((p) => p.id === id)
 }
 
+/**
+ * Legacy in-memory read kept for callers that need a typed empty state.
+ * Persisted attempt history is fetched from /api/attempts.
+ */
 export function getAttempts(): Attempt[] {
   return [...ATTEMPTS].sort((a, b) =>
     b.submittedAt.localeCompare(a.submittedAt),
