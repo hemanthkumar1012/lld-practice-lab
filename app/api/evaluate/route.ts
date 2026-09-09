@@ -4,6 +4,7 @@ import { CRITERION_KEYS, type Attempt, type CriterionKey } from '@/lib/types'
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.6-flash'
+const GEMINI_MAX_ATTEMPTS = 2
 
 const OUTPUT_SCHEMA = {
   type: 'OBJECT',
@@ -96,52 +97,74 @@ ${code}
 DESIGN REASONING
 ${explanation}`
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': GEMINI_API_KEY,
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: OUTPUT_SCHEMA,
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY,
+          },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: OUTPUT_SCHEMA,
+            },
+          }),
         },
-      }),
-    },
-  )
+      )
 
-  if (!response.ok) {
-    const detail = await response.text()
-    throw new Error(`Gemini evaluation failed: ${detail}`)
+      if (!response.ok) {
+        const detail = await response.text()
+        const error = new Error(`Gemini evaluation failed: ${detail}`)
+        lastError = error
+
+        if (response.status >= 500 && attempt < GEMINI_MAX_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, 800))
+          continue
+        }
+        throw error
+      }
+
+      const data = await response.json()
+      const outputText = data?.candidates?.[0]?.content?.parts
+        ?.map((part: any) => part?.text ?? '')
+        .join('')
+        .trim()
+
+      if (!outputText) throw new Error('Gemini returned no evaluation output.')
+
+      const evaluation = JSON.parse(outputText)
+      if (!isValidEvaluation(evaluation)) {
+        throw new Error('Gemini returned an invalid evaluation shape.')
+      }
+
+      return {
+        id: `ai-attempt-${Date.now()}`,
+        problemId: problem.id,
+        submittedAt: new Date().toISOString(),
+        overallScore: evaluation.overallScore,
+        language: 'Java',
+        summary: evaluation.summary,
+        criteria: evaluation.criteria,
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Gemini evaluation failed.')
+      if (attempt < GEMINI_MAX_ATTEMPTS && lastError.message.includes('fetch')) {
+        await new Promise((resolve) => setTimeout(resolve, 800))
+        continue
+      }
+      if (attempt === GEMINI_MAX_ATTEMPTS) break
+    }
   }
 
-  const data = await response.json()
-  const outputText = data?.candidates?.[0]?.content?.parts
-    ?.map((part: any) => part?.text ?? '')
-    .join('')
-    .trim()
-
-  if (!outputText) throw new Error('Gemini returned no evaluation output.')
-
-  const evaluation = JSON.parse(outputText)
-  if (!isValidEvaluation(evaluation)) {
-    throw new Error('Gemini returned an invalid evaluation shape.')
-  }
-
-  return {
-    id: `ai-attempt-${Date.now()}`,
-    problemId: problem.id,
-    submittedAt: new Date().toISOString(),
-    overallScore: evaluation.overallScore,
-    language: 'Java',
-    summary: evaluation.summary,
-    criteria: evaluation.criteria,
-  }
+  throw lastError ?? new Error('Gemini evaluation failed.')
 }
 
 function isValidEvaluation(value: any): boolean {
