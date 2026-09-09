@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { evaluateSubmission } from '@/lib/evaluator'
-import { CRITERION_KEYS, CRITERION_LABELS, type Attempt, type CriterionKey } from '@/lib/types'
+import { CRITERION_KEYS, type Attempt, type CriterionKey } from '@/lib/types'
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.8-flash'
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.6-flash'
 
 const OUTPUT_SCHEMA = {
   type: 'OBJECT',
@@ -41,8 +41,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // AI is optional: the deterministic evaluator keeps the practice flow usable
-    // when the external model is unavailable or temporarily overloaded.
     if (!GEMINI_API_KEY) {
       return NextResponse.json(withFallbackMessage(evaluateSubmission(problem, code, explanation)))
     }
@@ -57,9 +55,7 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Unexpected evaluation error.',
-      },
+      { error: error instanceof Error ? error.message : 'Unexpected evaluation error.' },
       { status: 500 },
     )
   }
@@ -106,7 +102,7 @@ ${explanation}`
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-goog-api-key': GEMINI_API_KEY!,
+        'x-goog-api-key': GEMINI_API_KEY,
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -130,9 +126,7 @@ ${explanation}`
     .join('')
     .trim()
 
-  if (!outputText) {
-    throw new Error('Gemini returned no evaluation output.')
-  }
+  if (!outputText) throw new Error('Gemini returned no evaluation output.')
 
   const evaluation = JSON.parse(outputText)
   if (!isValidEvaluation(evaluation)) {
@@ -180,5 +174,3 @@ function withFallbackMessage(attempt: Attempt, reason?: string): Attempt {
       : 'Deterministic preflight used because AI review is not configured. This is deterministic feedback, not an AI judgment.',
   }
 }
-
-void CRITERION_LABELS
