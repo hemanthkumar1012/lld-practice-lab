@@ -1,7 +1,10 @@
 # Design Note — LLD Practice Lab
 
-## Architecture
-A small Next.js monolith is sufficient for the two-day MVP. The browser renders the practice flow; API routes own persistence and evaluation orchestration; Supabase PostgreSQL stores attempts and structured evaluation results.
+## Overall approach
+
+I kept the application as one Next.js application because the assignment is small and has one main workflow. I did not want to spend the two-day window building infrastructure that the learner would never see.
+
+The browser handles the practice experience. API routes handle evaluation and persistence. Supabase stores the problems, attempts, submissions, and evaluation results.
 
 ```text
 Problem Library
@@ -10,45 +13,60 @@ Practice Workspace
       ↓
 Submit
       ↓
-/api/evaluate ── deterministic preflight
-      │
-      └────────── Gemini qualitative review
-      ↓
-Structured Feedback
-      ↓
-Supabase persistence
-      ↓
-History / Retry
+Evaluation
+   ↙       ↘
+Rules      Gemini
+   \       /
+    Structured Feedback
+           ↓
+        Supabase
+           ↓
+      History / Retry
 ```
 
-## Domain model
-- **Problem** — prompt, requirements, difficulty, concepts.
-- **Attempt** — one learner run through a problem and its lifecycle.
-- **Submission** — code plus design reasoning; isolated so another evidence format can be added later.
-- **Evaluation** — one result for an attempt.
-- **CriterionResult** — score plus evidence, concern, suggestion, confidence.
-- **Evaluator** — abstraction for deterministic, AI, or future human evaluation.
+## Main objects
 
-## Change test A — text to diagram
-The submission concept is kept separate from the attempt. Today the UI sends Java code and text reasoning. A future `DiagramSubmission` can carry a diagram representation without changing the attempt/history concepts or the practice flow.
+- **Problem** — the LLD question, requirements, difficulty, and concepts.
+- **Attempt** — one try by a learner for a problem.
+- **Submission** — the evidence submitted for an attempt. Right now this is Java code and written reasoning.
+- **Evaluation** — the review produced for an attempt.
+- **CriterionResult** — one criterion's score and supporting feedback.
+- **Evaluator** — the boundary around evaluation so the practice flow does not depend on one evaluator.
 
-## Change test B — evaluator replacement
-Evaluation is treated as a separate responsibility. The flow does not depend on Gemini-specific output; it consumes the common evaluation shape. A future `HumanEvaluator` or stronger rule-based evaluator can replace or complement the AI implementation without rewriting the practice workflow.
+The important part is that these responsibilities are separate without turning the project into a complicated architecture.
+
+## Change test A — if submissions become diagrams
+
+I did not make the practice page depend on a specific editor type. The current submission is code plus written reasoning. If I add a diagram submission later, I can add another submission representation without changing the basic attempt/history flow.
+
+## Change test B — if the evaluator changes
+
+The learner should not care whether the review came from Gemini, deterministic rules, or a human reviewer. The UI consumes the same evaluation shape. That means another evaluator can be added without rebuilding the practice flow.
 
 ## Evaluation lifecycle
-The UI communicates `Submitted → Evaluating → Completed` and can surface `Failed`. The MVP persists the completed result once evaluation returns. If Gemini is missing or temporarily unavailable, deterministic preflight feedback keeps the learner flow usable rather than losing the submission.
 
-## Why not microservices?
-The product has one narrow workflow, low scale, and a two-day implementation constraint. A monolith reduces deployment, debugging, and operational complexity while preserving clean domain boundaries in code.
+The UI shows:
 
-## Data model
+**Submitted → Evaluating → Completed**
+
+A failed evaluation can also be shown as a failure state. The important thing is that a temporary AI problem should not be treated as the learner's problem. The API retries transient Gemini failures and uses deterministic feedback as a fallback.
+
+## Why I did not use microservices
+
+There is one main workflow, very little traffic, and a two-day deadline. A monolith is easier to build, debug, and deploy here. I still kept the evaluation and persistence responsibilities separate so the design can grow later if the product actually needs it.
+
+## Database
+
+The LLD data is kept in its own tables:
+
 `lld_problems` → `lld_requirements`
 
 `lld_attempts` → `lld_submissions`
 
 `lld_attempts` → `lld_evaluations` → `lld_criterion_results`
 
-Attempts reference an authenticated user when available. Row-level security is enabled on the LLD tables; production hardening should narrow anonymous policies before a real multi-user launch.
+Attempts can reference an authenticated Supabase user. Row-level security is enabled on the LLD tables. The current anonymous policies are suitable for this assignment demo, but I would tighten them before opening the application to real multi-user traffic.
 
 ## Failure handling
-Gemini failures are not presented as learner failures. The evaluation route retries transient provider errors once and then falls back to deterministic feedback. Invalid AI output is rejected by schema validation rather than being persisted as trustworthy feedback.
+
+Gemini output is validated before it is used. The evaluator expects all seven criteria and checks their score ranges and fields. If Gemini is unavailable, the application falls back to deterministic preflight feedback instead of leaving the learner with a broken submission flow.
