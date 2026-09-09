@@ -1,17 +1,9 @@
 import { NextResponse } from 'next/server'
+import { evaluateSubmission } from '@/lib/evaluator'
+import { CRITERION_KEYS, CRITERION_LABELS, type Attempt, type CriterionKey } from '@/lib/types'
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
-const GEMINI_MODEL = 'gemini-3.8-flash'
-
-const CRITERIA = [
-  'Requirement Understanding',
-  'Responsibility & Cohesion',
-  'Coupling',
-  'Encapsulation & Abstraction',
-  'Extensibility',
-  'Testability',
-  'Design Reasoning',
-] as const
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.8-flash'
 
 const OUTPUT_SCHEMA = {
   type: 'OBJECT',
@@ -39,13 +31,6 @@ const OUTPUT_SCHEMA = {
 
 export async function POST(request: Request) {
   try {
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json(
-        { error: 'GEMINI_API_KEY is not configured on the server.' },
-        { status: 500 },
-      )
-    }
-
     const body = await request.json()
     const { problem, code, explanation } = body ?? {}
 
@@ -56,26 +41,51 @@ export async function POST(request: Request) {
       )
     }
 
-    const systemPrompt = `You are a senior software engineer evaluating a junior developer's low-level design submission.
+    // AI is optional: the deterministic evaluator keeps the practice flow usable
+    // when the external model is unavailable or temporarily overloaded.
+    if (!GEMINI_API_KEY) {
+      return NextResponse.json(withFallbackMessage(evaluateSubmission(problem, code, explanation)))
+    }
+
+    try {
+      const evaluation = await evaluateWithGemini(problem, code, explanation)
+      return NextResponse.json(evaluation)
+    } catch (error) {
+      const fallback = evaluateSubmission(problem, code, explanation)
+      const reason = error instanceof Error ? error.message : 'Temporary AI service failure.'
+      return NextResponse.json(withFallbackMessage(fallback, reason))
+    }
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : 'Unexpected evaluation error.',
+      },
+      { status: 500 },
+    )
+  }
+}
+
+async function evaluateWithGemini(problem: any, code: string, explanation: string): Promise<Attempt> {
+  const systemPrompt = `You are a senior software engineer evaluating a junior developer's low-level design submission.
 
 Evaluate the design, not coding style alone. Be evidence-based and fair. Do not reward buzzwords unless the code or explanation demonstrates the underlying design decision.
 
 Score these seven criteria from 0 to 100:
-1. Requirement Understanding
-2. Responsibility & Cohesion
-3. Coupling
-4. Encapsulation & Abstraction
-5. Extensibility
-6. Testability
-7. Design Reasoning
+1. requirementUnderstanding — Requirement Understanding
+2. responsibilityCohesion — Responsibility & Cohesion
+3. coupling — Coupling
+4. encapsulationAbstraction — Encapsulation & Abstraction
+5. extensibility — Extensibility
+6. testability — Testability
+7. designReasoning — Design Reasoning
 
 For every criterion provide concrete evidence from the submitted code or explanation, one meaningful concern, one actionable suggestion, and confidence (High, Medium, or Low).
 
 The overall score should reflect the quality of the seven criteria. Do not assume requirements that were not provided. Distinguish missing evidence from a genuinely poor design. Keep feedback concise enough for a learner to act on.
 
-Return exactly seven criteria, one for each named criterion, with no duplicates.`
+Return exactly these seven criterion keys, each exactly once: ${CRITERION_KEYS.join(', ')}.`
 
-    const userPrompt = `PROBLEM
+  const userPrompt = `PROBLEM
 Title: ${problem.title}
 Difficulty: ${problem.difficulty}
 Description:
@@ -90,67 +100,53 @@ ${code}
 DESIGN REASONING
 ${explanation}`
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': GEMINI_API_KEY,
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': GEMINI_API_KEY!,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: OUTPUT_SCHEMA,
         },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: systemPrompt }],
-          },
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: userPrompt }],
-            },
-          ],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: OUTPUT_SCHEMA,
-          },
-        }),
-      },
-    )
+      }),
+    },
+  )
 
-    if (!response.ok) {
-      const detail = await response.text()
-      return NextResponse.json(
-        { error: `Gemini evaluation failed: ${detail}` },
-        { status: 502 },
-      )
-    }
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(`Gemini evaluation failed: ${detail}`)
+  }
 
-    const data = await response.json()
-    const outputText = data?.candidates?.[0]?.content?.parts
-      ?.map((part: any) => part?.text ?? '')
-      .join('')
-      .trim()
+  const data = await response.json()
+  const outputText = data?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => part?.text ?? '')
+    .join('')
+    .trim()
 
-    if (!outputText) {
-      throw new Error('Gemini returned no evaluation output.')
-    }
+  if (!outputText) {
+    throw new Error('Gemini returned no evaluation output.')
+  }
 
-    const evaluation = JSON.parse(outputText)
+  const evaluation = JSON.parse(outputText)
+  if (!isValidEvaluation(evaluation)) {
+    throw new Error('Gemini returned an invalid evaluation shape.')
+  }
 
-    if (!isValidEvaluation(evaluation)) {
-      throw new Error('Gemini returned an invalid evaluation shape.')
-    }
-
-    return NextResponse.json(evaluation)
-  } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Unexpected AI evaluation error.',
-      },
-      { status: 500 },
-    )
+  return {
+    id: `ai-attempt-${Date.now()}`,
+    problemId: problem.id,
+    submittedAt: new Date().toISOString(),
+    overallScore: evaluation.overallScore,
+    language: 'Java',
+    summary: evaluation.summary,
+    criteria: evaluation.criteria,
   }
 }
 
@@ -162,9 +158,10 @@ function isValidEvaluation(value: any): boolean {
 
   const keys = value.criteria.map((criterion: any) => criterion.key)
   if (new Set(keys).size !== 7) return false
+  if (!CRITERION_KEYS.every((key) => keys.includes(key))) return false
 
   return value.criteria.every((criterion: any) =>
-    CRITERIA.includes(criterion.key) &&
+    CRITERION_KEYS.includes(criterion.key as CriterionKey) &&
     Number.isInteger(criterion.score) &&
     criterion.score >= 0 &&
     criterion.score <= 100 &&
@@ -174,3 +171,14 @@ function isValidEvaluation(value: any): boolean {
     ['High', 'Medium', 'Low'].includes(criterion.confidence),
   )
 }
+
+function withFallbackMessage(attempt: Attempt, reason?: string): Attempt {
+  return {
+    ...attempt,
+    summary: reason
+      ? `Deterministic preflight used because AI review was temporarily unavailable. ${reason}`
+      : 'Deterministic preflight used because AI review is not configured. This is deterministic feedback, not an AI judgment.',
+  }
+}
+
+void CRITERION_LABELS
