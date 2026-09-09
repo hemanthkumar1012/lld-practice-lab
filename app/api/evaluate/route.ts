@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+const GEMINI_MODEL = 'gemini-2.5-flash'
 
 const CRITERIA = [
   'Requirement Understanding',
@@ -14,20 +15,16 @@ const CRITERIA = [
 
 const OUTPUT_SCHEMA = {
   type: 'object',
-  additionalProperties: false,
   properties: {
-    overallScore: { type: 'integer', minimum: 0, maximum: 100 },
+    overallScore: { type: 'integer' },
     summary: { type: 'string' },
     criteria: {
       type: 'array',
-      minItems: 7,
-      maxItems: 7,
       items: {
         type: 'object',
-        additionalProperties: false,
         properties: {
           key: { type: 'string', enum: [...CRITERIA] },
-          score: { type: 'integer', minimum: 0, maximum: 100 },
+          score: { type: 'integer' },
           evidence: { type: 'string' },
           concern: { type: 'string' },
           suggestion: { type: 'string' },
@@ -42,9 +39,9 @@ const OUTPUT_SCHEMA = {
 
 export async function POST(request: Request) {
   try {
-    if (!OPENAI_API_KEY) {
+    if (!GEMINI_API_KEY) {
       return NextResponse.json(
-        { error: 'OPENAI_API_KEY is not configured on the server.' },
+        { error: 'GEMINI_API_KEY is not configured on the server.' },
         { status: 500 },
       )
     }
@@ -91,48 +88,52 @@ ${code}
 DESIGN REASONING
 ${explanation}`
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-5-mini',
-        input: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'lld_evaluation',
-            strict: true,
-            schema: OUTPUT_SCHEMA,
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: systemPrompt }],
           },
-        },
-      }),
-    })
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: userPrompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: 'application/json',
+            responseSchema: OUTPUT_SCHEMA,
+          },
+        }),
+      },
+    )
 
     if (!response.ok) {
       const detail = await response.text()
       return NextResponse.json(
-        { error: `OpenAI evaluation failed: ${detail}` },
+        { error: `Gemini evaluation failed: ${detail}` },
         { status: 502 },
       )
     }
 
     const data = await response.json()
-    const outputText = extractOutputText(data)
+    const outputText = data?.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part?.text ?? '')
+      .join('')
+      .trim()
 
     if (!outputText) {
-      throw new Error('OpenAI returned no evaluation output.')
+      throw new Error('Gemini returned no evaluation output.')
     }
 
     const evaluation = JSON.parse(outputText)
 
     if (!isValidEvaluation(evaluation)) {
-      throw new Error('OpenAI returned an invalid evaluation shape.')
+      throw new Error('Gemini returned an invalid evaluation shape.')
     }
 
     return NextResponse.json(evaluation)
@@ -149,31 +150,14 @@ ${explanation}`
   }
 }
 
-function extractOutputText(data: any): string | null {
-  if (typeof data?.output_text === 'string') {
-    return data.output_text
-  }
-
-  const output = Array.isArray(data?.output) ? data.output : []
-
-  for (const item of output) {
-    const content = Array.isArray(item?.content) ? item.content : []
-
-    for (const part of content) {
-      if (typeof part?.text === 'string') {
-        return part.text
-      }
-    }
-  }
-
-  return null
-}
-
 function isValidEvaluation(value: any): boolean {
   if (!value || typeof value !== 'object') return false
-  if (!Number.isInteger(value.overallScore)) return false
+  if (!Number.isInteger(value.overallScore) || value.overallScore < 0 || value.overallScore > 100) return false
   if (typeof value.summary !== 'string') return false
   if (!Array.isArray(value.criteria) || value.criteria.length !== 7) return false
+
+  const keys = value.criteria.map((criterion: any) => criterion.key)
+  if (new Set(keys).size !== 7) return false
 
   return value.criteria.every((criterion: any) =>
     CRITERIA.includes(criterion.key) &&
