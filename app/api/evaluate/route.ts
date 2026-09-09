@@ -49,14 +49,13 @@ export async function POST(request: Request) {
     try {
       const evaluation = await evaluateWithGemini(problem, code, explanation)
       return NextResponse.json(evaluation)
-    } catch (error) {
+    } catch {
       const fallback = evaluateSubmission(problem, code, explanation)
-      const reason = error instanceof Error ? error.message : 'Temporary AI service failure.'
-      return NextResponse.json(withFallbackMessage(fallback, reason))
+      return NextResponse.json(withFallbackMessage(fallback))
     }
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unexpected evaluation error.' },
+      { error: 'Unable to evaluate this submission right now. Please try again.' },
       { status: 500 },
     )
   }
@@ -124,7 +123,6 @@ ${explanation}`
         const detail = await response.text()
         const error = new Error(`Gemini evaluation failed: ${detail}`)
         lastError = error
-
         if (response.status >= 500 && attempt < GEMINI_MAX_ATTEMPTS) {
           await new Promise((resolve) => setTimeout(resolve, 800))
           continue
@@ -189,11 +187,9 @@ function isValidEvaluation(value: any): boolean {
   )
 }
 
-function withFallbackMessage(attempt: Attempt, reason?: string): Attempt {
+function withFallbackMessage(attempt: Attempt): Attempt {
   return {
     ...attempt,
-    summary: reason
-      ? `Deterministic preflight used because AI review was temporarily unavailable. ${reason}`
-      : 'Deterministic preflight used because AI review is not configured. This is deterministic feedback, not an AI judgment.',
+    summary: 'Deterministic preflight used because AI review was temporarily unavailable. This feedback is based on the submission checks and is not an AI judgment.',
   }
 }
