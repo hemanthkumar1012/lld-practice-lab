@@ -1,10 +1,12 @@
 # AI Usage
 
-## Where AI is used
-Gemini is used only for qualitative review of a learner's LLD submission. The server sends the problem, requirements, Java code, and design reasoning to the model.
+I used AI as part of the implementation, mainly to speed up development and to help with the qualitative evaluation part of the product. I did not make the whole application depend on AI output.
 
-## Structured output
-The evaluator requires seven fixed criteria:
+## Where AI is used
+
+Gemini reviews a learner's LLD submission. The server sends the selected problem, its requirements, the submitted Java code, and the learner's design reasoning.
+
+The model reviews seven areas:
 
 1. Requirement Understanding
 2. Responsibility & Cohesion
@@ -14,15 +16,24 @@ The evaluator requires seven fixed criteria:
 6. Testability
 7. Design Reasoning
 
-Each result contains a score, evidence, concern, suggestion, and confidence.
+For each area I ask for a score, evidence, concern, suggestion, and confidence. This makes the feedback easier to display and gives the learner something concrete to work on.
+
+## Why I used AI here
+
+Simple rules are useful for checking obvious signals such as whether an interface or dependency injection is present. They are much weaker at deciding whether the responsibility split actually makes sense or whether an abstraction is useful.
+
+I therefore used deterministic checks as the baseline and Gemini for the qualitative part of the review.
 
 ## Guardrails
-- The API key is server-side only and is never sent to the browser.
-- AI output is parsed as JSON and validated before it reaches the UI.
-- Scores are bounded from 0–100 and all seven criteria must appear exactly once.
-- The prompt tells the evaluator not to reward buzzwords without evidence.
-- Deterministic preflight is used when AI is unavailable, and that feedback is explicitly labeled as deterministic rather than AI judgment.
-- The system does not claim that AI feedback is infallible; learners should treat suggestions as review guidance.
 
-## Why AI instead of only rules?
-Rules can detect explicit signals such as interfaces, dependency injection, or tests, but they are weak at judging whether responsibilities are actually coherent or whether an abstraction is justified. AI is used for that qualitative layer while deterministic checks provide resilience and predictable baseline feedback.
+- The Gemini API key stays on the server.
+- The API expects JSON and validates the response before showing it to the learner.
+- Scores must be between 0 and 100.
+- Exactly the seven expected criteria must be returned.
+- The evaluator is instructed to use evidence from the submission instead of rewarding design buzzwords.
+- If Gemini is unavailable, deterministic feedback is returned so the main practice flow still works.
+- AI feedback is presented as review guidance, not as an unquestionable answer.
+
+## Development use
+
+I also used AI assistance during development for implementation ideas, debugging, UI/content iteration, and documentation. I reviewed the generated changes against the actual project requirements and kept the architecture intentionally small for the two-day assignment.
