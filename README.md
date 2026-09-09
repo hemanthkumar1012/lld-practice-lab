@@ -32,6 +32,21 @@ The application is intentionally a small monolith. Domain concepts are separated
 
 The evaluation API validates structured AI output and retries transient provider failures. If AI is unavailable, deterministic preflight feedback keeps the learner workflow functional and clearly labels the result.
 
+## Environment variables
+
+Configure these variables in the deployment platform:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+GEMINI_API_KEY
+GEMINI_MODEL
+```
+
+`GEMINI_MODEL` is optional and defaults to `gemini-3.6-flash`.
+
+The Gemini key is used only by the server-side evaluation route and is never exposed to the browser.
+
 ## Local development
 
 ```bash
@@ -39,20 +54,21 @@ pnpm install
 pnpm dev
 ```
 
-Required environment variables for the deployed application:
-
-```text
-SUPABASE_URL
-SUPABASE_KEY
-GEMINI_API_KEY
-```
-
-`GEMINI_MODEL` is optional and defaults to `gemini-3.6-flash`.
-
 ## Project documents
 - `RESEARCH.md` — learner/problem research and MVP rationale
 - `DESIGN.md` — architecture, domain model, change tests, failure handling
 - `AI_USAGE.md` — AI evaluation design and guardrails
+- `tests/TEST_PLAN.md` — acceptance, failure-mode, and change-test checklist
+
+## Deployment checklist
+
+1. Connect the GitHub repository to Vercel.
+2. Set the four environment variables above for the Production environment.
+3. Deploy the `main` branch.
+4. Open `/problems` and submit a Parking Lot solution.
+5. Confirm evaluation completes and all seven criteria are displayed.
+6. Open History and confirm the attempt persists after refresh.
+7. Submit a second attempt and confirm both attempts remain visible.
 
 ## Submission evidence
 The working application demonstrates the complete path from problem selection through submission, evaluation, structured review, persistence, history, and retry-oriented learning.
