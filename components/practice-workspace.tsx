@@ -64,7 +64,7 @@ export function PracticeWorkspace({ problem }: { problem: Problem }) {
     return data.attemptId as string
   }
 
-  function runPipeline() {
+  async function runPipeline() {
     clearTimers()
     setError(null)
     setPhase('submitted')
@@ -73,12 +73,25 @@ export function PracticeWorkspace({ problem }: { problem: Problem }) {
     const evaluatingTimer = window.setTimeout(() => setPhase('evaluating'), 700)
     const evaluationTimer = window.setTimeout(async () => {
       try {
-        const aiAttempt = await runAiEvaluation()
-        setAttempt(aiAttempt)
-        await saveAttempt(aiAttempt)
+        let nextAttempt: Attempt
+
+        try {
+          nextAttempt = await runAiEvaluation()
+        } catch (aiError) {
+          nextAttempt = evaluateSubmission(problem, code, notes)
+          nextAttempt.summary = `${nextAttempt.summary} AI review was temporarily unavailable, so deterministic preflight feedback was used instead.`
+          setError(
+            aiError instanceof Error
+              ? `AI review unavailable. Showing deterministic feedback instead. ${aiError.message}`
+              : 'AI review unavailable. Showing deterministic feedback instead.',
+          )
+        }
+
+        setAttempt(nextAttempt)
+        await saveAttempt(nextAttempt)
         setPhase('completed')
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'AI evaluation failed.')
+        setError(err instanceof Error ? err.message : 'Evaluation failed.')
         setPhase('failed')
       }
     }, 1400)
@@ -150,7 +163,7 @@ export function PracticeWorkspace({ problem }: { problem: Problem }) {
           {error ? <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 size-4 shrink-0" /><span className="break-words">{error}</span></div> : null}
 
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">Your solution and reasoning are evaluated by deterministic preflight checks plus AI review.</p>
+            <p className="text-xs text-muted-foreground">AI review is preferred; deterministic preflight feedback is used automatically if AI is temporarily unavailable.</p>
             <Button onClick={handleSubmit} disabled={isBusy}>
               {isBusy ? <><Loader2 className="size-4 animate-spin" />Evaluating</> : <><Play className="size-4" />Submit for review</>}
             </Button>
