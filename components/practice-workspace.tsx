@@ -39,6 +39,7 @@ export function PracticeWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<'solution' | 'feedback'>('solution')
   const [attempt, setAttempt] = useState<Attempt | null>(null)
+
   const timers = useRef<number[]>([])
 
   const isBusy =
@@ -47,9 +48,10 @@ export function PracticeWorkspace({
   const hasSubmitted = phase !== 'idle'
 
   function clearTimers() {
-    timers.current.forEach((timer) =>
-      window.clearTimeout(timer),
-    )
+    timers.current.forEach((timer) => {
+      window.clearTimeout(timer)
+    })
+
     timers.current = []
   }
 
@@ -69,15 +71,19 @@ export function PracticeWorkspace({
       }),
     })
 
-    if (!response.ok) {
-      const data = await response.json().catch(() => null)
+    const data = await response.json().catch(() => null)
 
+    if (!response.ok) {
       throw new Error(
         data?.error ?? 'Failed to save your attempt.',
       )
     }
 
-    const data = await response.json()
+    if (!data?.attemptId) {
+      throw new Error(
+        'The evaluation was saved, but no attempt ID was returned.',
+      )
+    }
 
     return data.attemptId as string
   }
@@ -85,37 +91,45 @@ export function PracticeWorkspace({
   function runPipeline(nextAttempt: Attempt) {
     clearTimers()
 
+    setError(null)
     setAttempt(nextAttempt)
     setPhase('submitted')
     setTab('feedback')
 
+    const evaluatingTimer = window.setTimeout(() => {
+      setPhase('evaluating')
+    }, 700)
+
+    const saveTimer = window.setTimeout(async () => {
+      try {
+        await saveAttempt(nextAttempt)
+        setPhase('completed')
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Failed to save your attempt.',
+        )
+
+        setPhase('failed')
+      }
+    }, 2200)
+
     timers.current.push(
-      window.setTimeout(
-        () => setPhase('evaluating'),
-        700,
-      ),
-      window.setTimeout(async () => {
-        try {
-          await saveAttempt(nextAttempt)
-          setPhase('completed')
-        } catch (err) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : 'Failed to save your attempt.',
-          )
-          setPhase('failed')
-        }
-      }, 2200),
+      evaluatingTimer,
+      saveTimer,
     )
   }
 
   function handleSubmit() {
+    setError(null)
+
     const codeIsEmpty =
       code.trim().length === 0 ||
       code.trim() === problem.starterCode.trim()
 
-    const notesIsEmpty = notes.trim().length === 0
+    const notesIsEmpty =
+      notes.trim().length === 0
 
     if (codeIsEmpty && notesIsEmpty) {
       setError(
@@ -137,8 +151,6 @@ export function PracticeWorkspace({
       )
       return
     }
-
-    setError(null)
 
     const evaluatedAttempt = evaluateSubmission(
       problem,
@@ -163,6 +175,7 @@ export function PracticeWorkspace({
 
   function handleReset() {
     clearTimers()
+
     setPhase('idle')
     setAttempt(null)
     setError(null)
@@ -183,9 +196,11 @@ export function PracticeWorkspace({
           <TabButton
             active={tab === 'feedback'}
             disabled={!hasSubmitted}
-            onClick={() =>
-              hasSubmitted && setTab('feedback')
-            }
+            onClick={() => {
+              if (hasSubmitted) {
+                setTab('feedback')
+              }
+            }}
           >
             Feedback
           </TabButton>
@@ -220,11 +235,12 @@ export function PracticeWorkspace({
             <textarea
               id="code"
               value={code}
-              onChange={(event) =>
+              onChange={(event) => {
                 setCode(event.target.value)
-              }
+              }}
               spellCheck={false}
-              className="h-80 w-full resize-y rounded-lg border border-input bg-background p-3 font-mono text-[13px] leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={isBusy}
+              className="h-80 w-full resize-y rounded-lg border border-input bg-background p-3 font-mono text-[13px] leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
             />
           </div>
 
@@ -244,11 +260,12 @@ export function PracticeWorkspace({
             <textarea
               id="notes"
               value={notes}
-              onChange={(event) =>
+              onChange={(event) => {
                 setNotes(event.target.value)
-              }
+              }}
+              disabled={isBusy}
               placeholder="Which responsibilities did you separate, and why? What abstractions did you introduce? What trade-offs did you make, and what did you deliberately leave out for now?"
-              className="h-32 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-32 w-full resize-y rounded-lg border border-input bg-background p-3 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
             />
           </div>
 
@@ -258,7 +275,10 @@ export function PracticeWorkspace({
               className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
             >
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              <span>{error}</span>
+
+              <span className="break-words">
+                {error}
+              </span>
             </div>
           ) : null}
 
@@ -290,6 +310,7 @@ export function PracticeWorkspace({
           <FeedbackPanel
             phase={phase}
             attempt={attempt}
+            error={error}
             onRetry={handleRetry}
           />
         </div>
@@ -301,10 +322,12 @@ export function PracticeWorkspace({
 function FeedbackPanel({
   phase,
   attempt,
+  error,
   onRetry,
 }: {
   phase: EvalPhase
   attempt: Attempt | null
+  error: string | null
   onRetry: () => void
 }) {
   if (phase === 'idle') {
@@ -321,19 +344,18 @@ function FeedbackPanel({
 
   if (phase === 'failed') {
     return (
-      <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <AlertCircle className="size-6 text-destructive" />
+      <div className="flex flex-col items-center gap-4 py-16 text-center">
+        <AlertCircle className="size-7 text-destructive" />
 
-        <div>
+        <div className="max-w-2xl">
           <p className="text-sm font-medium">
             Evaluation failed
           </p>
 
-          <p className="mt-1 text-sm text-muted-foreground">
-            Something went wrong while saving your evaluation.
+          <p className="mt-2 break-words text-sm text-muted-foreground">
+            {error ??
+              'Something went wrong while saving your evaluation.'}
           </p>
-
-          {errorMessagePlaceholder()}
         </div>
 
         <Button
@@ -394,11 +416,10 @@ function FeedbackPanel({
   )
 }
 
-function errorMessagePlaceholder() {
-  return null
-}
-
-type StepState = 'done' | 'active' | 'pending'
+type StepState =
+  | 'done'
+  | 'active'
+  | 'pending'
 
 function stepStatus(
   step: EvalPhase,
